@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 import 'package:path/path.dart' as p;
+import 'dart:convert';
+import 'dart:io';
 
 import '../../data/models/highlight.dart';
 import '../../../../shared/core/constants/app_constants.dart';
@@ -52,22 +54,82 @@ class EpubParser {
   List<ReaderBlock> parse(String htmlString) {
     final blocks = <ReaderBlock>[];
 
-    final document = html_parser.parse(htmlString);
-    final body = document.body;
+    try {
+      final document = html_parser.parse(htmlString);
+      final body = document.body;
 
-    if (body == null) return blocks;
+      if (body == null) return blocks;
 
-    _processNodes(body.nodes, blocks);
+      final nodeCount = body.nodes.length;
+      
+      if (nodeCount == 0) {
+        return blocks;
+      }
+      
+      _processNodes(body.nodes.toList(), blocks);
+    } catch (_) {}
 
     return blocks;
   }
 
   void _processNodes(List<dynamic> nodes, List<ReaderBlock> blocks) {
+    if (nodes.isEmpty) return;
+    
+    if (nodes.length == 1) {
+      final firstNode = nodes.first;
+      if (firstNode is html_dom.Element) {
+        final tagName = firstNode.localName?.toLowerCase() ?? '';
+        
+        if (tagName == 'body' || tagName.isEmpty || tagName == 'div' || tagName == 'span') {
+          if (firstNode.hasChildNodes()) {
+            _processNodes(firstNode.nodes.toList(), blocks);
+            return;
+          }
+        }
+      } else if (firstNode is html_dom.Text) {
+        final text = _cleanText(firstNode.text.trim());
+        if (text.isNotEmpty) {
+          blocks.add(ReaderBlock(type: 'text', content: text));
+        }
+        return;
+      }
+    }
+    
     for (var node in nodes) {
+      if (node is html_dom.Text) {
+        final text = _cleanText(node.text.trim());
+        if (text.isNotEmpty) {
+          blocks.add(ReaderBlock(type: 'text', content: text));
+        }
+        continue;
+      }
       if (node is html_dom.Element) {
         final tagName = node.localName?.toLowerCase() ?? '';
+        
+        if (tagName.isEmpty) {
+          final text = _cleanText(node.text.trim());
+          if (text.isNotEmpty) {
+            blocks.add(ReaderBlock(type: 'text', content: text));
+          }
+          continue;
+        }
 
         switch (tagName) {
+          case 'div':
+          case 'span':
+            if (node.hasChildNodes()) {
+              _processNodes(node.nodes.toList(), blocks);
+            }
+            break;
+          case 'h1':
+          case 'h2':
+          case 'h3':
+          case 'h4':
+          case 'h5':
+          case 'h6':
+          case 'p':
+            _parseTextAndImages(node, tagName == 'h1' || tagName == 'h2' || tagName == 'h3' ? tagName : (tagName == 'p' ? 'p' : 'h3'), blocks);
+            break;
           case 'h1':
           case 'h2':
           case 'h3':
@@ -193,6 +255,34 @@ class _ChapterContentState extends State<ChapterContent> {
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int _currentBlockIndex = 0;
+
+  // #region agent log
+  Future<void> _agentLog({
+    required String hypothesisId,
+    required String location,
+    required String message,
+    required Map<String, dynamic> data,
+    String runId = 'initial',
+  }) async {
+    try {
+      final client = HttpClient();
+      final req = await client.postUrl(Uri.parse('http://127.0.0.1:7310/ingest/c62b37a5-1955-4a1d-9e5c-ae63d7c2059b'));
+      req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      req.headers.set('X-Debug-Session-Id', 'e5ce20');
+      req.write(jsonEncode({
+        'sessionId': 'e5ce20',
+        'runId': runId,
+        'hypothesisId': hypothesisId,
+        'location': location,
+        'message': message,
+        'data': data,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      }));
+      await req.close();
+      client.close(force: true);
+    } catch (_) {}
+  }
+  // #endregion
 
   @override
   void dispose() {
@@ -426,14 +516,50 @@ class _ChapterContentState extends State<ChapterContent> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: widget.backgroundColor,
-      padding: EdgeInsets.symmetric(horizontal: widget.horizontalMargin),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: _buildBlocksWithHighlights(),
-      ),
-    );
+    debugPrint('ChapterContent: building ${widget.blocks.length} blocks, chapter: ${widget.chapterPath}');
+    try {
+      final children = _buildBlocksWithHighlights();
+      // #region agent log
+      _agentLog(
+        hypothesisId: 'H4',
+        location: 'epub_parser.dart:ChapterContent.build',
+        message: 'chapter content widgets built',
+        data: {
+          'chapterPath': widget.chapterPath,
+          'blocks': widget.blocks.length,
+          'widgets': children.length,
+          'activeParagraphIndex': widget.activeParagraphIndex,
+        },
+      );
+      // #endregion
+      debugPrint('ChapterContent: built ${children.length} widgets');
+      debugPrint('ChapterContent: first widget type: ${children.isNotEmpty ? children.first.runtimeType : "empty"}');
+      if (children.isEmpty) {
+        return Center(child: Text('Sin contenido'));
+      }
+      return Container(
+        color: widget.backgroundColor,
+        padding: EdgeInsets.symmetric(horizontal: widget.horizontalMargin),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: children,
+        ),
+      );
+    } catch (e, st) {
+      debugPrint('ChapterContent ERROR: $e');
+      debugPrint(st.toString());
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 48),
+            const SizedBox(height: 8),
+            Text('Error: ${e.toString().substring(0, 50)}'),
+          ],
+        ),
+      );
+    }
   }
 
   List<Widget> _buildBlocksWithHighlights() {

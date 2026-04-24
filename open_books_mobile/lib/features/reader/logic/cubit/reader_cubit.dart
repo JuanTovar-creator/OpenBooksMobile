@@ -85,8 +85,16 @@ class ReaderCubit extends Cubit<ReaderState> {
 
   ReaderMode get currentMode => _currentMode;
 
-  void setOnProgressChanged(OnProgressChanged? callback) {
-    print('[DEBUG] setOnProgressChanged called with: ${callback != null}');
+ReaderCubit({
+    required EpubRepository repository,
+    required this.libroId,
+    this.initialPage = 0,
+  })  : _repository = repository,
+        super(ReaderInitial());
+
+  final int initialPage;
+
+void setOnProgressChanged(OnProgressChanged? callback) {
     _onProgressChanged = callback;
   }
 
@@ -107,10 +115,6 @@ class ReaderCubit extends Cubit<ReaderState> {
       emit(currentState.copyWith(mode: _currentMode));
     }
   }
-
-ReaderCubit(this._repository, this.libroId, {this.initialPage = 0}) : super(ReaderInitial());
-
-  final int initialPage;
 
   Future<void> cargarLibro() async {
     emit(ReaderLoading());
@@ -229,11 +233,10 @@ ReaderCubit(this._repository, this.libroId, {this.initialPage = 0}) : super(Read
     try {
       final chapterPath = currentState.manifest.readingOrder[index].href;
       final content = await _repository.getResource(libroId, chapterPath);
-      final cleanContent = _cleanHtmlContent(content);
-      _chapterCache.put(index, cleanContent);
-      return cleanContent;
+      _chapterCache.put(index, content);
+      return content;
     } catch (e) {
-      return null;
+      rethrow;  
     }
   }
 
@@ -241,21 +244,22 @@ ReaderCubit(this._repository, this.libroId, {this.initialPage = 0}) : super(Read
     final currentState = state;
     if (currentState is! ReaderLoaded) return;
 
-    final nextIndex = currentIndex + 1;
-    if (nextIndex >= currentState.manifest.readingOrder.length) return;
-    if (_chapterCache.has(nextIndex)) return;
+    for (int offset = 1; offset <= 3; offset++) {
+      final nextIndex = currentIndex + offset;
+      if (nextIndex >= currentState.manifest.readingOrder.length) break;
+      if (_chapterCache.has(nextIndex)) continue;
 
-    Future.microtask(() async {
-      try {
-        final chapterPath = currentState.manifest.readingOrder[nextIndex].href;
-        final content = await _repository.getResource(libroId, chapterPath);
-        
-        if (!isClosed) {
-          _chapterCache.put(nextIndex, content);
-        }
-      } catch (e) {
-      }
-    });
+      Future.microtask(() async {
+        try {
+          final chapterPath = currentState.manifest.readingOrder[nextIndex].href;
+          final content = await _repository.getResource(libroId, chapterPath);
+          
+          if (!isClosed) {
+            _chapterCache.put(nextIndex, content);
+          }
+        } catch (_) {}
+      });
+    }
   }
 
   void _optimizeCache(int currentIndex) {
@@ -275,7 +279,6 @@ ReaderCubit(this._repository, this.libroId, {this.initialPage = 0}) : super(Read
   List<int> get cachedIndices => _chapterCache.cachedIndices;
 
   void _onChapterChanged(int newChapterIndex, int totalChapters) {
-    print('[DEBUG] _onChapterChanged called: chapter=$newChapterIndex, total=$totalChapters');
     if (_lastSavedChapter == newChapterIndex) return;
     _lastSavedChapter = newChapterIndex;
 
@@ -286,11 +289,9 @@ ReaderCubit(this._repository, this.libroId, {this.initialPage = 0}) : super(Read
   }
 
   void _saveProgress(int currentChapter, int totalChapters) {
-    print('[DEBUG] _saveProgress called: chapter=$currentChapter, total=$totalChapters, callback=${_onProgressChanged != null}');
     if (_onProgressChanged == null) return;
 
     final progreso = totalChapters > 0 ? ((currentChapter + 1) / totalChapters) * 100 : 0.0;
-    print('[DEBUG] Sending progress: $progreso%, page: ${currentChapter + 1}');
     
     _onProgressChanged!(
       libroId: libroId,

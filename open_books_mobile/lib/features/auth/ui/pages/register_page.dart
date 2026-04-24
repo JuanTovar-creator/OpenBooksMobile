@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../shared/core/constants/app_constants.dart';
-import '../../../../shared/core/session/session_cubit.dart';
 import '../../logic/cubit/auth_cubit.dart';
 import '../../logic/cubit/auth_state.dart';
 
@@ -197,8 +196,13 @@ class _RegisterPageState extends State<RegisterPage> {
       body: BlocListener<AuthCubit, AuthState>(
         listener: (context, state) {
           if (state is AuthRegisterSuccess) {
-            context.read<SessionCubit>();
-            context.go('/home');
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Registro exitoso. Inicia sesión.'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            context.go('/login');
           } else if (state is AuthError) {
             setState(() {
               _registerError = state.message;

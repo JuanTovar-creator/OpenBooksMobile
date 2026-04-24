@@ -1,5 +1,4 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter/foundation.dart';
 
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/roles_repository.dart';
@@ -42,7 +41,6 @@ class AuthCubit extends Cubit<AuthState> {
         nombreRol: nombreRol,
         sancionado: response.usuario.sancionado,
         token: response.token,
-        fotoPerfilBase64: response.usuario.fotoPerfilBase64,
       );
 
       emit(AuthLoginSuccess(
@@ -63,7 +61,7 @@ class AuthCubit extends Cubit<AuthState> {
   }) async {
     emit(AuthLoading());
     try {
-      final response = await _authRepository.register(
+      await _authRepository.register(
         nombreUsuario: nombreUsuario,
         correo: correo,
         contrasena: contrasena,
@@ -71,29 +69,7 @@ class AuthCubit extends Cubit<AuthState> {
         nombreCompleto: nombreCompleto,
       );
 
-      String nombreRol = 'Usuario';
-      try {
-        final rol = await _rolesRepository.getRol(rolId);
-        if (rol != null) {
-          nombreRol = rol.nombre;
-        }
-      } catch (_) {}
-
-      await _sessionCubit.login(
-        userId: response.usuario.id,
-        userName: response.usuario.userName,
-        email: response.usuario.email,
-        nombreCompleto: response.usuario.nombreCompleto,
-        rolId: rolId,
-        nombreRol: nombreRol,
-        sancionado: response.usuario.sancionado,
-        token: response.token,
-      );
-
-      emit(AuthRegisterSuccess(
-        usuario: response.usuario,
-        token: response.token,
-      ));
+      emit(const AuthRegisterSuccess());
     } catch (e) {
       emit(AuthError(e.toString().replaceAll('Exception: ', '')));
     }
