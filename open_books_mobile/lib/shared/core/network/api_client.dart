@@ -3,6 +3,26 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'auth_interceptor.dart';
 
+class CertificatePinningInterceptor extends Interceptor {
+  final Map<String, String> allowedHosts;
+
+  CertificatePinningInterceptor({
+    Map<String, String>? allowedHosts,
+  }) : allowedHosts = allowedHosts ?? _defaultPinnedHosts;
+
+  static Map<String, String> get _defaultPinnedHosts {
+    return {
+      '10.0.2.2': dotenv.env['CERT_SHA256'] ?? '',
+      'localhost': dotenv.env['CERT_SHA256'] ?? '',
+    };
+  }
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+    handler.next(options);
+  }
+}
+
 class ApiClient {
   late final Dio _dio;
 
@@ -21,6 +41,8 @@ class ApiClient {
       ),
     );
 
+    _configureCertificateValidation();
+
     _dio.interceptors.addAll([
       AuthInterceptor(),
       LogInterceptor(
@@ -29,6 +51,21 @@ class ApiClient {
         error: true,
       ),
     ]);
+  }
+
+  void _configureCertificateValidation() {
+    final pinnedCertHash = dotenv.env['CERT_SHA256'];
+    final enablePinning = dotenv.env['ENABLE_CERT_PINNING']?.toLowerCase() == 'true';
+
+    if (enablePinning && pinnedCertHash != null && pinnedCertHash.isNotEmpty) {
+      _dio.interceptors.add(
+        CertificatePinningInterceptor(
+          allowedHosts: {
+            Uri.parse(dotenv.env['API_BASE_URL'] ?? 'http://10.0.2.2:5201').host: pinnedCertHash,
+          },
+        ),
+      );
+    }
   }
 
   Dio get dio => _dio;
