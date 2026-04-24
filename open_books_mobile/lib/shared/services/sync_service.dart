@@ -13,11 +13,15 @@ import '../core/enums/download_status.dart';
 import '../core/utils/retry_handler.dart';
 import '../core/utils/concurrency_pool.dart';
 
+import 'package:open_books_mobile/shared/services/models/reading_session_model.dart';
+
 class SyncService {
   final LocalDatabase localDatabase;
   final BibliotecaRepositoryImpl bibliotecaRepository;
   final HistorialRepositoryImpl historialRepository;
   final NetworkInfo networkInfo;
+
+  int? _lastSavedPage;
   EpubDataSource? _epubDataSource;
 
   static const int _maxRetryCount = 3;
@@ -249,6 +253,12 @@ class SyncService {
     
     final existing = await localDatabase.bibliotecaLocalDataSource.getByLibroId(libroId, usuarioId);
     print('[DEBUG SyncService] Existing book found: ${existing != null}');
+    
+    int pagesReadInSession = 0;
+    if (_lastSavedPage != null && page > _lastSavedPage!) {
+      pagesReadInSession = page - _lastSavedPage!;
+    }
+    
     if (existing != null) {
       await localDatabase.bibliotecaLocalDataSource.updateProgressWithTracking(
         id: existing.id!,
@@ -273,6 +283,20 @@ class SyncService {
       );
       print('[DEBUG SyncService] Created new book entry');
     }
+    
+    if (pagesReadInSession > 0) {
+      print('[DEBUG SyncService] Recording reading session: $pagesReadInSession pages');
+      final session = ReadingSessionModel(
+        progressId: existing?.id ?? 0,
+        libroId: libroId,
+        usuarioId: usuarioId,
+        pagesReadInSession: pagesReadInSession,
+        sessionTimestamp: now,
+      );
+      await localDatabase.readingSessionsDataSource.insert(session);
+    }
+    
+    _lastSavedPage = page;
     
     final payload = {
       'libroId': libroId,
