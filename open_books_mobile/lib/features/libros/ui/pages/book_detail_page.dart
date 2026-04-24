@@ -8,6 +8,7 @@ import '../../data/models/models.dart';
 import '../../logic/cubit/libro_detalle_cubit.dart' show OperationType, LibroDetalleCubit, LibroDetalleState, LibroDetalleLoaded, LibroDetalleError, LibroDetalleLoading;
 import '../widgets/review_dialog.dart';
 import '../widgets/denuncia_resena_dialog.dart';
+import '../widgets/share_book_qr_widget.dart';
 import '../../../../shared/ui/widgets/close_header.dart';
 import '../../../../shared/core/session/session_cubit.dart';
 import '../../../../shared/core/session/session_state.dart';
@@ -43,6 +44,17 @@ class _BookDetailPageState extends State<BookDetailPage> {
     );
   }
 
+  void _showQrDialog(int libroId, String titulo, String autor) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => ShareBookQrDialog(
+        libroId: libroId,
+        titulo: titulo,
+        autor: autor,
+      ),
+    );
+  }
+
   void _showDescripcionCompleta(String descripcion) {
     showDialog(
       context: context,
@@ -61,86 +73,106 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: CloseHeader(onClose: () => context.go('/home')),
-      body: BlocConsumer<LibroDetalleCubit, LibroDetalleState>(
-        listener: (context, state) {
-          if (state is LibroDetalleLoaded && state.operationType != null) {
-            if (state.operationType == OperationType.denuncia) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Denuncia enviada correctamente')),
-              );
-            } else if (state.operationType == OperationType.valoracion || 
-                       state.operationType == OperationType.resena) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Operación realizada con éxito')),
-              );
-            }
-          } else if (state is LibroDetalleError) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(state.message)));
-          }
-        },
-        listenWhen: (previous, current) {
-          if (previous is LibroDetalleLoaded && current is LibroDetalleLoaded) {
-            return current.operationType != previous.operationType;
-          }
-          return true;
-        },
-        builder: (context, state) {
-          if (state is LibroDetalleLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (state is LibroDetalleError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(state.message),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () =>
-                        context.read<LibroDetalleCubit>().recargar(),
-                    child: const Text('Reintentar'),
+    return BlocBuilder<LibroDetalleCubit, LibroDetalleState>(
+      builder: (context, state) {
+        final actions = state is LibroDetalleLoaded
+            ? [
+                IconButton(
+                  icon: const Icon(Icons.qr_code),
+                  onPressed: () => _showQrDialog(
+                    state.libro.id,
+                    state.libro.titulo,
+                    state.libro.autor,
                   ),
-                ],
-              ),
-            );
-          }
+                  tooltip: 'Compartir QR',
+                ),
+              ]
+            : <Widget>[];
+        return Scaffold(
+          appBar: CloseHeader(
+            onClose: () => context.go('/home'),
+            actions: actions,
+          ),
+          body: BlocConsumer<LibroDetalleCubit, LibroDetalleState>(
+            listener: (context, state) {
+              if (state is LibroDetalleLoaded && state.operationType != null) {
+                if (state.operationType == OperationType.denuncia) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Denuncia enviada correctamente')),
+                  );
+                } else if (state.operationType == OperationType.valoracion || 
+                           state.operationType == OperationType.resena) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Operación realizada con éxito')),
+                  );
+                }
+              } else if (state is LibroDetalleError) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(state.message)),
+                );
+              }
+            },
+            listenWhen: (previous, current) {
+              if (previous is LibroDetalleLoaded && current is LibroDetalleLoaded) {
+                return current.operationType != previous.operationType;
+              }
+              return true;
+            },
+            builder: (context, state) {
+              if (state is LibroDetalleLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
-          if (state is LibroDetalleLoaded) {
-            final libro = state.libro;
-            final portadaBase64 = state.portadaBase64;
-            final estaEnBiblioteca = state.estaEnBiblioteca;
+              if (state is LibroDetalleError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(state.message),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () =>
+                            context.read<LibroDetalleCubit>().recargar(),
+                        child: const Text('Reintentar'),
+                      ),
+                    ],
+                  ),
+                );
+              }
 
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(libro, portadaBase64),
-                  const SizedBox(height: 32),
-                  _buildBotonComprar(libro, estaEnBiblioteca),
-                  const SizedBox(height: 32),
-                  _buildEstadisticas(libro),
-                  const SizedBox(height: 32),
-                  _buildEstrellas(libro),
-                  const SizedBox(height: 32),
-                  _buildBotonResena(libro.id),
-                  const SizedBox(height: 48),
-                  _buildDescripcion(libro),
-                  const SizedBox(height: 48),
-                  _buildResenas(libro),
-                ],
-              ),
-            );
-          }
+              if (state is LibroDetalleLoaded) {
+                final libro = state.libro;
+                final portadaBase64 = state.portadaBase64;
+                final estaEnBiblioteca = state.estaEnBiblioteca;
 
-          return const SizedBox();
-        },
-      ),
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeader(libro, portadaBase64),
+                      const SizedBox(height: 32),
+                      _buildBotonComprar(libro, estaEnBiblioteca),
+                      const SizedBox(height: 32),
+                      _buildEstadisticas(libro),
+                      const SizedBox(height: 32),
+                      _buildEstrellas(libro),
+                      const SizedBox(height: 32),
+                      _buildBotonResena(libro.id),
+                      const SizedBox(height: 48),
+                      _buildDescripcion(libro),
+                      const SizedBox(height: 48),
+                      _buildResenas(libro),
+                    ],
+                  ),
+                );
+              }
+
+              return const SizedBox();
+            },
+          ),
+        );
+      },
     );
   }
 
